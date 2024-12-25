@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include <sys/prctl.h>
-#include "struct/agent_Struct.h"
+#include "agent_Struct.h"
 #include <netinet/in.h>  // For inet_pton()
 #include <arpa/inet.h>   // For inet_ntoa
 #include <netinet/ip.h>  // For netmask and IP calculation

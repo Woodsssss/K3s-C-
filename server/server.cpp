@@ -6,8 +6,8 @@
 #include <filesystem>
 #include <spdlog/spdlog.h>
 #include <sys/prctl.h>
-#include "struct/server_Struct.h"
-#include "struct/agent_Struct.h"
+#include "server_Struct.h"
+#include "agent_Struct.h"
 #include <netinet/in.h>  // For inet_pton()
 #include <arpa/inet.h>   // For inet_ntoa
 #include <netinet/ip.h>  // For netmask and IP calculation
@@ -383,21 +383,21 @@ bool isValidIP(const std::string& ip) {
     return false;
 }
 
-// 函数：返回列表中第一个有效的 IP 地址
-std::string GetFirstValidIPString(const std::vector<std::string>& ipList) {
-    for (const auto& unparsedIP : ipList) {
-        // 将逗号分隔的字符串拆分
-        std::stringstream ss(unparsedIP);
-        std::string token;
-        while (std::getline(ss, token, ',')) {
-            // 检查 IP 是否有效
-            if (isValidIP(token)) {
-                return token;
-            }
-        }
-    }
-    return ""; // 如果没有找到有效 IP，返回空字符串
-}
+// // 函数：返回列表中第一个有效的 IP 地址
+// std::string GetFirstValidIPString(const std::vector<std::string>& ipList) {
+//     for (const auto& unparsedIP : ipList) {
+//         // 将逗号分隔的字符串拆分
+//         std::stringstream ss(unparsedIP);
+//         std::string token;
+//         while (std::getline(ss, token, ',')) {
+//             // 检查 IP 是否有效
+//             if (isValidIP(token)) {
+//                 return token;
+//             }
+//         }
+//     }
+//     return ""; // 如果没有找到有效 IP，返回空字符串
+// }
 
 // 获取主机名，支持传递 nodeName 参数
 std::string GetHostname(const std::string& nodeName) {
@@ -804,6 +804,59 @@ std::vector<uint16_t> TLSCipherSuites(const std::vector<std::string>& cipherName
     return ciphersIntSlice;
 }
 
+std::string GetFirstValidInterface() {
+    struct ifaddrs *ifAddrStruct = nullptr;
+    struct ifaddrs *ifa = nullptr;
+
+    // 获取所有网络接口的信息
+    if (getifaddrs(&ifAddrStruct) == -1) {
+        std::cerr << "Failed to get network interfaces" << std::endl;
+        return "";  // 如果获取失败，返回空字符串
+    }
+
+    // 遍历接口列表，寻找第一个有效接口
+    for (ifa = ifAddrStruct; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr) {
+            continue;  // 跳过没有地址信息的接口
+        }
+
+        // 检查接口类型是否为IPv4
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in* ipv4 = (struct sockaddr_in*)ifa->ifa_addr;
+            char ipAddress[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(ipv4->sin_addr), ipAddress, INET_ADDRSTRLEN);
+
+            if (strcmp(ipAddress, "127.0.0.1") != 0) {
+                // 这里 ipAddress 不是 "127.0.0.1"，执行相应的操作
+                // 找到第一个有效的IPv4接口，返回接口名称
+                std::string interfaceName = ifa->ifa_name;
+                freeifaddrs(ifAddrStruct);  // 释放内存
+                return interfaceName;
+            }
+        }
+    }
+
+    // 如果没有找到有效的IPv4接口，返回空字符串
+    freeifaddrs(ifAddrStruct);
+    return "";
+}
+
+// 函数：计算根据CIDR前缀长度计算掩码
+std::vector<uint8_t> calculateMask(int prefixLength) {
+    std::vector<uint8_t> mask(4, 0);  // 初始化为0，表示四个字节
+    int remainingBits = prefixLength;
+    for (int i = 0; i < 4 && remainingBits > 0; ++i) {
+        if (remainingBits >= 8) {
+            mask[i] = 255;  // 设置8个1
+            remainingBits -= 8;
+        } else {
+            mask[i] = (255 << (8 - remainingBits));  // 设置剩余的位
+            remainingBits = 0;  // 完成掩码设置
+        }
+    }
+    return mask;
+}
+
 // 处理服务器命令的函数
 int server_run(boost::program_options::variables_map& vm,Server_user& config, CustomControllers& leaderControllers, CustomControllers& controllers) {
     // spdlog::info("Starting server with config file: {}", config.config_file);
@@ -946,10 +999,15 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 		}
 	}
 
+    agentConfig.FlannelIface = GetFirstValidInterface();
+    agentConfig.NodeIP.push_back("");
 	if (agentConfig.FlannelIface != "" && strlen(agentConfig.NodeIP[0].c_str())== 0){
 		std::string ip = GetIPFromInterface(agentConfig.FlannelIface);
 		agentConfig.NodeIP[0] = ip;
-	}
+	}else{
+        std::cerr << "Error: FlannelIface is empty." << std::endl;
+        return 1;
+    }
 
 	if (server.ControlConfig.PrivateIP == "" && strlen(agentConfig.NodeIP[0].c_str()) != 0 ){
 		server.ControlConfig.PrivateIP = GetFirstValidIPString(agentConfig.NodeIP);
@@ -976,11 +1034,11 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     }
 
 	// 设置advertiseIP
-	// 通过外部 IP 和节点 IP 设置 AdvertiseIP
-	// if not set, try setting advertise-ip from agent node-external-ip
-	if (server.ControlConfig.AdvertiseIP == "" && strlen(agentConfig.NodeExternalIP[0].c_str()) != 0 ){
-		server.ControlConfig.AdvertiseIP = GetFirstValidIPString(agentConfig.NodeExternalIP);
-	}
+	// // 通过外部 IP 和节点 IP 设置 AdvertiseIP
+	// // if not set, try setting advertise-ip from agent node-external-ip
+	// if (server.ControlConfig.AdvertiseIP == "" && strlen(agentConfig.NodeExternalIP[0].c_str()) != 0 ){
+	// 	server.ControlConfig.AdvertiseIP = GetFirstValidIPString(agentConfig.NodeExternalIP);
+	// }
 
 	// if not set, try setting advertise-ip from agent node-ip
 	if (server.ControlConfig.AdvertiseIP == "" && strlen(agentConfig.NodeIP[0].c_str()) != 0) {
@@ -1025,18 +1083,27 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
     // 循环处理每个 CIDR
     for (const auto& cidr : configClusterCIDR) {
-        std::vector<std::string> cidrList = splitString(cidr, ',');
-        
+        std::vector<std::string> cidrList = splitString(cidr, ',');       
         for (const auto& singleCIDR : cidrList) {
-            IPNet parsed;
-            if (!parseCIDR(singleCIDR, parsed)) {
-                std::cerr << "Invalid service-cidr " << singleCIDR << std::endl;
-                return 1;  // 错误处理，返回非零状态
-            }
+            size_t slashPos = singleCIDR .find('/');
+            std::string ipAddress;
+            std::vector<uint8_t> mask = {255, 255, 255, 0};  // subnet mask
+            if (slashPos != std::string::npos) {
+                ipAddress = singleCIDR .substr(0, slashPos);   // Get IP address part
+                int prefixLength = std::stoi(singleCIDR.substr(slashPos + 1));  // 获取CIDR前缀长度
+                mask = calculateMask(prefixLength);  // 根据前缀长度计算掩码
+            } else {
+                throw std::invalid_argument("Invalid singleCIDR format");
+            }       
+            IPNet parsed = IPNet(IP(ipAddress),mask);
+            // if (!parseCIDR(ipAddress, parsed)) {
+            //     std::cerr << "Invalid service-cidr " << singleCIDR << std::endl;
+            //     return 1;  // 错误处理，返回非零状态
+            // }
             // 使用 std::make_shared 包装 parsed 对象
             std::shared_ptr<IPNet> parsedPtr1 = std::make_shared<IPNet>(parsed);
             // 将有效的 CIDR 解析结果添加到 ServiceIPRanges
-            server.ControlConfig.ServiceIPRanges.push_back(parsedPtr1);
+            server.ControlConfig.ClusterIPRanges.push_back(parsedPtr1);
         }
     }
 
@@ -1045,7 +1112,8 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	server.ControlConfig.ClusterIPRange = server.ControlConfig.ClusterIPRanges[0];
 
 	// configure ServiceIPRanges. Use default 10.43.0.0/16 or fd00:43::/112 if user did not set it
-	if (strlen(config.ServiceCIDR[0].c_str()) == 0){
+	config.ServiceCIDR.push_back("");
+    if (strlen(config.ServiceCIDR[0].c_str()) == 0){
 		config.ServiceCIDR[0] = serviceCIDR;
 	}
 	// Loop through each CIDR
@@ -1053,11 +1121,21 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
         // Split the CIDR string by ',' (if multiple CIDRs are provided as a comma-separated list)
         std::vector<std::string> cidrList = splitString(cidr, ',');
         for (const auto& singleCIDR : cidrList) {
-            IPNet parsedIP;
-            if (!parseCIDR(singleCIDR, parsedIP)) {
-                std::cerr << "Error: invalid service-cidr " << singleCIDR << std::endl;
-                return 1;  // Handle error (throw an exception or return)
-            }
+            size_t slashPos = singleCIDR .find('/');
+            std::string ipAddress;
+            std::vector<uint8_t> mask = {255, 255, 255, 0};  // subnet mask
+            if (slashPos != std::string::npos) {
+                ipAddress = singleCIDR .substr(0, slashPos);   // Get IP address part
+                int prefixLength = std::stoi(singleCIDR.substr(slashPos + 1));  // 获取CIDR前缀长度
+                mask = calculateMask(prefixLength);  // 根据前缀长度计算掩码
+            } else {
+                throw std::invalid_argument("Invalid singleCIDR format");
+            }       
+            IPNet parsedIP = IPNet(IP(ipAddress),mask);
+            // if (!parseCIDR(ipAddress, parsed)) {
+            //     std::cerr << "Invalid service-cidr " << singleCIDR << std::endl;
+            //     return 1;  // 错误处理，返回非零状态
+            // }
             // 使用 std::make_shared 包装 parsed 对象
             std::shared_ptr<IPNet> parsedPtr = std::make_shared<IPNet>(parsedIP);
             // Add valid parsed CIDR to ClusterIPRanges
@@ -1080,13 +1158,13 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
         bool foundIPv4 = false;
         for (const auto& svcCIDR : server.ControlConfig.ServiceIPRanges) {
             // Here we assume the svcCIDR is in the format "IP/Netmask"
-            size_t slashPos = svcCIDR->toString().find('/');
-            if (slashPos == std::string::npos) {
-                std::cerr << "Error: Invalid service-cidr " << svcCIDR << std::endl;
-                return 1;
-            }
+            //size_t slashPos = svcCIDR->toString().find('/');
+            // if (slashPos == std::string::npos) {
+            //     std::cerr << "Error: Invalid service-cidr " << svcCIDR << std::endl;
+            //     return 1;
+            // }
 
-            std::string ipStr = svcCIDR->toString().substr(0, slashPos);
+            std::string ipStr = svcCIDR->toString();
             if (!parseIP(ipStr, svcCIDR->toString())) {
 				spdlog::info("Error: Invalid service-cidr IP %v",ipStr);
                 return 1;
@@ -1292,115 +1370,115 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
         std::cout << "Notify Socket: " << notifySocket << std::endl;
     }
 
-    std::unsetenv("NOTIFY_SOCKET");
+    // std::unsetenv("NOTIFY_SOCKET");
 
-    // 启动信号处理：ctx := signals.SetupSignalContext()用于捕获和处理系统信号，确保程序在收到信号时能安全退出。
-	ctx = SetupSignalContext();
+    // // 启动信号处理：ctx := signals.SetupSignalContext()用于捕获和处理系统信号，确保程序在收到信号时能安全退出。
+	// ctx = SetupSignalContext();
 
-    // 启动服务器：调用server.StartServer(ctx, &serverConfig, cfg)启动控制平面各组件（如API服务器、etcd、控制器等）。
-	StartServer(ctx, &server, config);
+    // // 启动服务器：调用server.StartServer(ctx, &serverConfig, cfg)启动控制平面各组件（如API服务器、etcd、控制器等）。
+	// StartServer(ctx, &server, config);
     
-    // 健康检查和系统通知：监听API服务器和etcd的状态，确保其已启动并且处于运行状态。
-    // 模拟启动服务器状态
-    std::thread serverStateThread(simulateServerState, std::ref(server));
-    // 假设系统通知的socket路径
-    std::string notifySocket = "/run/systemd/notify";
-    // 健康检查与系统通知
-    healthCheck(server, notifySocket);
-    serverStateThread.join();  // 等待服务器状态模拟线程完成
+    // // 健康检查和系统通知：监听API服务器和etcd的状态，确保其已启动并且处于运行状态。
+    // // 模拟启动服务器状态
+    // std::thread serverStateThread(simulateServerState, std::ref(server));
+    // // 假设系统通知的socket路径
+    // std::string notifySocket = "/run/systemd/notify";
+    // // 健康检查与系统通知
+    // healthCheck(server, notifySocket);
+    // serverStateThread.join();  // 等待服务器状态模拟线程完成
 
-    // URL 格式化
-    BindAddress = server.ControlConfig.BindAddress;  // 设置为空表示需要选择主机接口
-    std::ostringstream urlStream;
-    urlStream << "https://" << BindAddressOrLoopback(false, true)
-              << ":" << server.ControlConfig.SupervisorPort;
-    std::string url = urlStream.str();
-    std::cout << "Generated URL: " << url << std::endl;
-    std::string token;
-    // FormatToken 格式化 token
-    try {
-        token = FormatToken(server.ControlConfig.AgentToken, server.ControlConfig.Runtime->ServerCA);
-        std::cout << "Generated Token: " << token << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "Error generating token: " << e.what() << std::endl;
-    }
-    // 为节点代理（agent）配置各种参数，如调试模式、数据目录、服务负载均衡、集群重置等。
+    // // URL 格式化
+    // BindAddress = server.ControlConfig.BindAddress;  // 设置为空表示需要选择主机接口
+    // std::ostringstream urlStream;
+    // urlStream << "https://" << BindAddressOrLoopback(false, true)
+    //           << ":" << server.ControlConfig.SupervisorPort;
+    // std::string url = urlStream.str();
+    // std::cout << "Generated URL: " << url << std::endl;
+    // std::string token;
+    // // FormatToken 格式化 token
+    // try {
+    //     token = FormatToken(server.ControlConfig.AgentToken, server.ControlConfig.Runtime->ServerCA);
+    //     std::cout << "Generated Token: " << token << std::endl;
+    // } catch (const std::exception& e) {
+    //     std::cerr << "Error generating token: " << e.what() << std::endl;
+    // }
+    // // 为节点代理（agent）配置各种参数，如调试模式、数据目录、服务负载均衡、集群重置等。
 
-	agentConfig.ContainerRuntimeReady = containerRuntimeReady;
-	agentConfig.Debug = app.GlobalBool("debug");
-	agentConfig.DataDir = fs::path(server.ControlConfig.DataDir).parent_path().string();
-	agentConfig.ServerURL = url;
-	agentConfig.Token = token;
-	agentConfig.DisableLoadBalancer = !server.ControlConfig.DisableAPIServer;
-	agentConfig.DisableServiceLB = server.ControlConfig.DisableServiceLB;
-	agentConfig.ETCDAgent = server.ControlConfig.DisableAPIServer;
-	agentConfig.ClusterReset = server.ControlConfig.ClusterReset;
-	agentConfig.Rootless = config.Rootless;
+	// agentConfig.ContainerRuntimeReady = containerRuntimeReady;
+	// agentConfig.Debug = app.GlobalBool("debug");
+	// agentConfig.DataDir = fs::path(server.ControlConfig.DataDir).parent_path().string();
+	// agentConfig.ServerURL = url;
+	// agentConfig.Token = token;
+	// agentConfig.DisableLoadBalancer = !server.ControlConfig.DisableAPIServer;
+	// agentConfig.DisableServiceLB = server.ControlConfig.DisableServiceLB;
+	// agentConfig.ETCDAgent = server.ControlConfig.DisableAPIServer;
+	// agentConfig.ClusterReset = server.ControlConfig.ClusterReset;
+	// agentConfig.Rootless = config.Rootless;
 
-	//处理代理的Rootless模式：若代理配置了Rootless模式，防止重复进入无根环境。
-	if(agentConfig.Rootless){
-		// let agent specify Rootless kubelet flags, but not unshare twice
-		agentConfig.RootlessAlreadyUnshared = true;
-	}
+	// //处理代理的Rootless模式：若代理配置了Rootless模式，防止重复进入无根环境。
+	// if(agentConfig.Rootless){
+	// 	// let agent specify Rootless kubelet flags, but not unshare twice
+	// 	agentConfig.RootlessAlreadyUnshared = true;
+	// }
 
-    // Simulating a check for ServerURL and handling it accordingly
-    if (server.ControlConfig.DisableAPIServer) {
-        if (config.ServerURL.empty()) {
-            // If this node is the initial member of the cluster and is not hosting an apiserver,
-            // always bootstrap the agent off local supervisor
-            std::cout << "Bootstrap agent off local supervisor as no ServerURL is provided." << std::endl;
-            ResetLoadBalancer(fs::path(agentConfig.DataDir) / "agent", "SupervisorServiceName");
-        } else {
-            // If this is a secondary member of the cluster and is not hosting an apiserver,
-            // bootstrap the agent off the existing supervisor
-            agentConfig.ServerURL = config.ServerURL;
-            std::cout << "Bootstrap agent with existing supervisor at " << config.ServerURL << std::endl;
-        }
+    // // Simulating a check for ServerURL and handling it accordingly
+    // if (server.ControlConfig.DisableAPIServer) {
+    //     if (config.ServerURL.empty()) {
+    //         // If this node is the initial member of the cluster and is not hosting an apiserver,
+    //         // always bootstrap the agent off local supervisor
+    //         std::cout << "Bootstrap agent off local supervisor as no ServerURL is provided." << std::endl;
+    //         ResetLoadBalancer(fs::path(agentConfig.DataDir) / "agent", "SupervisorServiceName");
+    //     } else {
+    //         // If this is a secondary member of the cluster and is not hosting an apiserver,
+    //         // bootstrap the agent off the existing supervisor
+    //         agentConfig.ServerURL = config.ServerURL;
+    //         std::cout << "Bootstrap agent with existing supervisor at " << config.ServerURL << std::endl;
+    //     }
 
-        // Initialize the API address channel (std::vector in this case)
-        std::cout << "Initializing API Address channel." << std::endl;
-        agentConfig.APIAddressCh.clear();  // Clear any existing addresses
+    //     // Initialize the API address channel (std::vector in this case)
+    //     std::cout << "Initializing API Address channel." << std::endl;
+    //     agentConfig.APIAddressCh.clear();  // Clear any existing addresses
 
-        // Simulate async operation (equivalent to Go's go routine)
-        std::thread apiThread(getAPIAddressFromEtcd, server, agentConfig);
-        apiThread.detach();  // Detach the thread for asynchronous operation
+    //     // Simulate async operation (equivalent to Go's go routine)
+    //     std::thread apiThread(getAPIAddressFromEtcd, server, agentConfig);
+    //     apiThread.detach();  // Detach the thread for asynchronous operation
 
-        // Simulate waiting for the API address
-        std::this_thread::sleep_for(std::chrono::seconds(3));  // Simulate time for API address to arrive
-        if (!agentConfig.APIAddressCh.empty()) {
-            std::cout << "API Address: " << agentConfig.APIAddressCh.front() << std::endl;
-        }
-    }
+    //     // Simulate waiting for the API address
+    //     std::this_thread::sleep_for(std::chrono::seconds(3));  // Simulate time for API address to arrive
+    //     if (!agentConfig.APIAddressCh.empty()) {
+    //         std::cout << "API Address: " << agentConfig.APIAddressCh.front() << std::endl;
+    //     }
+    // }
 
-	// Until the agent is run and retrieves config from the server, we won't know
-	// if the embedded registry is enabled. If it is not enabled, these are not
-	// used as the registry is never started.
-	registry = spegel.DefaultRegistry;
+	// // Until the agent is run and retrieves config from the server, we won't know
+	// // if the embedded registry is enabled. If it is not enabled, these are not
+	// // used as the registry is never started.
+	// registry = spegel.DefaultRegistry;
 	
-    registry.Bootstrapper = spegel.NewChainingBootstrapper(
-		spegel.NewServerBootstrapper(&server.ControlConfig),
-		spegel.NewAgentBootstrapper(config.ServerURL, token, agentConfig.DataDir),
-		spegel.NewSelfBootstrapper(),
-	)
+    // registry.Bootstrapper = spegel.NewChainingBootstrapper(
+	// 	spegel.NewServerBootstrapper(&server.ControlConfig),
+	// 	spegel.NewAgentBootstrapper(config.ServerURL, token, agentConfig.DataDir),
+	// 	spegel.NewSelfBootstrapper(),
+	// );
 
-	registry.Router = https.Start(ctx, nodeConfig, server.ControlConfig.Runtime);
+	// registry.Router = https.Start(ctx, nodeConfig, server.ControlConfig.Runtime);
 
-    // same deal for metrics - these are not used if the extra metrics listener is not enabled.
-	metrics = k3smetrics.DefaultMetrics;
-	metrics.Router = https.Start(ctx, nodeConfig, server.ControlConfig.Runtime);
+    // // same deal for metrics - these are not used if the extra metrics listener is not enabled.
+	// metrics = k3smetrics.DefaultMetrics;
+	// metrics.Router = https.Start(ctx, nodeConfig, server.ControlConfig.Runtime);
 
-    // and for pprof as well
-	pprof = profile.DefaultProfiler;
-	pprof.Router = https.Start(ctx, nodeConfig, serverConfig.ControlConfig.Runtime);
+    // // and for pprof as well
+	// pprof = profile.DefaultProfiler;
+	// pprof.Router = https.Start(ctx, nodeConfig, serverConfig.ControlConfig.Runtime);
 
-    //启动代理：如果代理未禁用，则调用agent.Run(ctx, agentConfig)启动代理。若代理被禁用，则通过agent.RunStandalone(ctx, agentConfig)仅启动独立代理
-	if(config.DisableAgent){
-		agentConfig.ContainerRuntimeEndpoint = "/dev/null";
-		RunStandalone(ctx, agentConfig);
-        return 0;
-	}
+    // //启动代理：如果代理未禁用，则调用agent.Run(ctx, agentConfig)启动代理。若代理被禁用，则通过agent.RunStandalone(ctx, agentConfig)仅启动独立代理
+	// if(config.DisableAgent){
+	// 	agentConfig.ContainerRuntimeEndpoint = "/dev/null";
+	// 	RunStandalone(ctx, agentConfig);
+    //     return 0;
+	// }
     
-    RunStandalone(ctx, agentConfig);
+    // RunStandalone(ctx, agentConfig);
 	return 0;
 }
 
