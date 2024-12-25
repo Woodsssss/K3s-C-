@@ -12,6 +12,33 @@
 
 // 定义时间间隔类型，与 Go 中的 time.Duration 对应
 using Duration = std::chrono::milliseconds;
+// StartupHook 类型
+//using StartupHook = std::function<int(std::shared_ptr<void>, std::shared_ptr<std::mutex>, StartupHookArgs)>;
+
+// Structure to represent a port range
+struct PortRange {
+    int base;  // Base port
+    int size;  // Size of the range
+
+    // Constructor to initialize to default values
+    PortRange() : base(0), size(0) {}
+};
+
+// EtcdS3 结构体
+struct ETcdS3 {
+    std::string AccessKey;     // 访问密钥
+    std::string Bucket;        // S3 桶名称
+    std::string ConfigSecret;  // 配置密钥
+    std::string Endpoint;      // S3 端点
+    std::string EndpointCA;    // S3 端点 CA
+    std::string Folder;        // 文件夹路径
+    std::string Proxy;         // 代理地址
+    std::string Region;        // 区域
+    std::string SecretKey;     // 秘密密钥
+    bool Insecure = false;     // 是否使用不安全的连接
+    bool SkipSSLVerify = false; // 是否跳过 SSL 验证
+    Duration Timeout;          // 超时，使用时间间隔表示
+};
 
 struct Server_user {
     std::vector<std::string> ClusterCIDR;
@@ -86,7 +113,7 @@ struct Server_user {
     bool EtcdSnapshotCompress;
     std::string EtcdListFormat;
     
-    std::shared_ptr<EtcdS3> EtcdS3;
+    std::shared_ptr<ETcdS3> EtcdS3;
     std::string EtcdS3Endpoint;
     std::string EtcdS3EndpointCA;
     bool EtcdS3SkipSSLVerify;
@@ -267,10 +294,17 @@ struct CustomControllers {
     }
 };
 
+struct TlsConfig {
+    std::string CAFile;     // 文件路径字符串
+    std::string CertFile;   // 文件路径字符串
+    std::string KeyFile;    // 文件路径字符串
+    bool SkipVerify;        // 跳过验证标志
+};
+
 // ETCDConfig 结构体
 struct ETCDConfig {
     std::vector<std::string> Endpoints;  // 存储 ETCD 节点的地址
-    tlsConfig tlsConfig;                // 存储 TLS 配置
+    TlsConfig tlsConfig;                // 存储 TLS 配置
     bool LeaderElect;  
 };
 
@@ -303,10 +337,10 @@ struct ControlRuntime : public ControlRuntimeBootstrap{
     std::string ServingKubeletKey;       // 服务 Kubelet 密钥
     std::string ServerToken;             // 服务器令牌
     std::string AgentToken;              // 代理令牌
-    std::shared_ptr<http::Handler> APIServer;  // API 服务器处理器
-    std::shared_ptr<http::Handler> Handler;    // 处理器
-    std::shared_ptr<http::Handler> Tunnel;     // 隧道处理器
-    std::shared_ptr<http::Handler> Authenticator;  // 认证器
+    //std::shared_ptr<http::Handler> APIServer;  // API 服务器处理器
+    //std::shared_ptr<http::Handler> Handler;    // 处理器
+    //std::shared_ptr<http::Handler> Tunnel;     // 隧道处理器
+    //std::shared_ptr<http::Handler> Authenticator;  // 认证器
 
     std::string EgressSelectorConfig;    // 出口选择器配置
     std::string CloudControllerConfig;   // 云控制器配置
@@ -337,60 +371,43 @@ struct ControlRuntime : public ControlRuntimeBootstrap{
     std::string ClientETCDCert;          // 客户端 ETCD 证书
     std::string ClientETCDKey;           // 客户端 ETCD 密钥
 
-    std::shared_ptr<k3s::Factory> K3s;   // K3s 工厂
-    std::shared_ptr<core::Factory> Core; // 核心工厂
-    std::shared_ptr<record::EventRecorder> Event; // 事件记录器
+    //std::shared_ptr<k3s::Factory> K3s;   // K3s 工厂
+    //std::shared_ptr<core::Factory> Core; // 核心工厂
+    //std::shared_ptr<record::EventRecorder> Event; // 事件记录器
     ETCDConfig EtcdConfig;     // ETCD 配置
 };
 
-// EtcdS3 结构体
-struct EtcdS3 {
-    std::string AccessKey;     // 访问密钥
-    std::string Bucket;        // S3 桶名称
-    std::string ConfigSecret;  // 配置密钥
-    std::string Endpoint;      // S3 端点
-    std::string EndpointCA;    // S3 端点 CA
-    std::string Folder;        // 文件夹路径
-    std::string Proxy;         // 代理地址
-    std::string Region;        // 区域
-    std::string SecretKey;     // 秘密密钥
-    bool Insecure = false;     // 是否使用不安全的连接
-    bool SkipSSLVerify = false; // 是否跳过 SSL 验证
-    Duration Timeout;          // 超时，使用时间间隔表示
-};
 
-struct ConnectionPoolConfig {
+
+struct ConnectionPoolConf {
     int MaxIdle;                 // Zero means defaultMaxIdleConns; negative means 0
     int MaxOpen;                 // <= 0 means unlimited
     std::chrono::seconds MaxLifetime; // Maximum amount of time a connection may be reused
 
     // 默认构造函数
-    ConnectionPoolConfig() : MaxIdle(0), MaxOpen(0), MaxLifetime(std::chrono::seconds(0)) {}
+    ConnectionPoolConf() : MaxIdle(0), MaxOpen(0), MaxLifetime(std::chrono::seconds(0)) {}
 
     // 带参数的构造函数
-    ConnectionPoolConfig(int maxIdle, int maxOpen, std::chrono::seconds maxLifetime)
+    ConnectionPoolConf(int maxIdle, int maxOpen, std::chrono::seconds maxLifetime)
         : MaxIdle(maxIdle), MaxOpen(maxOpen), MaxLifetime(maxLifetime) {}
 };
 
-struct tlsConfig {
-    std::string CAFile;     // 文件路径字符串
-    std::string CertFile;   // 文件路径字符串
-    std::string KeyFile;    // 文件路径字符串
-    bool SkipVerify;        // 跳过验证标志
-};
+
 
 // Assuming appropriate includes are added based on your environment
 struct EndpointConfig {
     std::shared_ptr<grpc::Server> GRPCServer;  // gRPC Server (using shared_ptr for memory management)
     std::string Listener;                      // Listener address (string)
     std::string Endpoint;                      // Endpoint address (string)
-    ConnectionPoolConfig ConnectionPoolConfig;  // Connection pool configuration
-    tlsConfig  ServerTLSConfig;               // TLS configuration for server
-    tlsConfig  BackendTLSConfig;              // TLS configuration for backend
-    prometheus::Registerer MetricsRegisterer;  // Metrics registerer for Prometheus
+    ConnectionPoolConf ConnectionPoolConfig;  // Connection pool configuration
+    TlsConfig  ServerTLSConfig;               // TLS configuration for server
+    TlsConfig  BackendTLSConfig;              // TLS configuration for backend
+    //prometheus::Registerer MetricsRegisterer;  // Metrics registerer for Prometheus
     std::chrono::milliseconds NotifyInterval;  // Notification interval (in milliseconds)
     std::string EmulatedETCDVersion;          // Emulated ETCD version string
 };
+
+
 
 // Control 结构体
 struct Control : public CriticalControlArgs{
@@ -446,7 +463,7 @@ struct Control : public CriticalControlArgs{
     int EtcdSnapshotRetention;
     bool EtcdSnapshotCompress;
     std::string EtcdListFormat;
-    std::shared_ptr<EtcdS3> EtcdS3;  // 使用智能指针管理 EtcdS3
+    std::shared_ptr<ETcdS3> EtcdS3;  // 使用智能指针管理 EtcdS3
     std::string ServerNodeName;
     int VLevel;
     std::string VModule;
@@ -467,14 +484,13 @@ struct StartupHookArgs {
     std::unordered_map<std::string, bool> Disables;     // 使用 std::unordered_map 来替代 map[string]bool
 };
 
-// StartupHook 类型
-using StartupHook = std::function<int(std::shared_ptr<void>, std::shared_ptr<std::mutex>, StartupHookArgs)>;
+
 
 struct Config {
 	bool              DisableAgent;      
 	Control           ControlConfig;
 	int               SupervisorPort;    
-	std::vector<StartupHook> StartupHooks;      // 启动时钩子
+	std::vector<std::string> StartupHooks;      // 启动时钩子
     CustomControllers LeaderControllers;        // 领导控制器
     CustomControllers Controllers;              // 控制器    
 };
@@ -513,13 +529,4 @@ struct Log {
     std::string VModule; // 模块名
     std::string LogFile; // 日志文件路径
     bool AlsoLogToStderr; // 是否同时输出到标准错误
-};
-
-// Structure to represent a port range
-struct PortRange {
-    int base;  // Base port
-    int size;  // Size of the range
-
-    // Constructor to initialize to default values
-    PortRange() : base(0), size(0) {}
 };
