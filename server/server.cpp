@@ -26,12 +26,30 @@
 #include <unistd.h>  // for getuid
 #include <pwd.h>     // for getpwuid
 #include <sys/types.h>  // for getuid
-
+// oatpp 相关库
+#include "oatpp/web/server/HttpConnectionHandler.hpp"
+#include "oatpp/network/tcp/server/ConnectionProvider.hpp"
+#include "oatpp/network/Server.hpp"
+#include "handler.h"
 namespace fs = std::filesystem;
 
 std::string BindAddress;
 std::string Loopback(bool urlSafe) {
     return urlSafe ? "[127.0.0.1]" : "127.0.0.1"; // 返回回环地址
+}
+
+// 用于映射TLS版本名称到版本ID
+std::map<std::string, uint16_t> tls_versions = {
+    {"SSLv3", 0x0300},
+    {"TLSv1.0", 0x0301},
+    {"TLSv1.1", 0x0302},
+    {"TLSv1.2", 0x0303},
+    {"TLSv1.3", 0x0304}
+};
+
+// 返回默认TLS版本（这里假设为TLSv1.2的版本ID）
+uint16_t DefaultTLSVersion() {
+    return 0x0303; // 默认TLS版本：TLSv1.2
 }
 
 // 用于选择主机接口的 IP 地址
@@ -113,7 +131,7 @@ bool parseCIDR(const std::string& cidr, IPNet& parsedIP) {
 }
 
 // A utility function to parse an IP address (like net.ParseIP in Go)
-bool parseIP(const std::string& ipStr, std::string ip) {
+bool parseIP(const std::string& ipStr, struct in_addr& ip) {
     return inet_pton(AF_INET, ipStr.c_str(), &ip) == 1;
 }
 
@@ -130,7 +148,7 @@ std::vector<std::string> splitString(const std::string& str, char delimiter) {
 
 // A utility function to calculate the indexed IP (for ClusterDNS)
 std::string getIndexedIP(std::string cidr, int index) {
- struct in_addr addr;
+    struct in_addr addr;
     if (inet_pton(AF_INET, cidr.c_str(), &addr) != 1) {
         // Handle invalid IP address format
         return "";
@@ -193,15 +211,19 @@ std::string getArgValueFromList(const std::string& searchArg, const std::vector<
     return value;
 }
 
-// 模拟 TLSVersion 转换函数
-int TLSVersion(const std::string& version) {
-    if (version == "TLSv1.2") {
-        return 1;  // 假设 TLSv1.2 对应值为 1
-    } else if (version == "TLSv1.3") {
-        return 2;  // 假设 TLSv1.3 对应值为 2
-    } else {
-        throw std::invalid_argument("invalid tls-min-version");
+// 获取TLS版本ID的函数
+uint16_t TLSVersion(const std::string& versionName) {
+    if (versionName.empty()) {
+        return DefaultTLSVersion(); // 如果传入空字符串，则返回默认版本
     }
+    
+    auto it = tls_versions.find(versionName);
+    if (it != tls_versions.end()) {
+        return it->second; // 如果找到对应的版本，返回版本ID
+    }
+
+    // 如果未找到对应版本，抛出异常
+    throw std::invalid_argument("unknown tls version " + versionName);
 }
 
 // ResetLoadBalancer deletes the local state file for the load balancer on disk
@@ -867,7 +889,8 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     spdlog::info("Server is running...");
     // 将进程的标题设置为k3s server，隐藏敏感参数
     prctl(PR_SET_NAME, "k3s server", 0, 0, 0);
-    
+    // 初始化 oatpp 环境
+    oatpp::base::Environment::init();
     // 初始化日志系统
     spdlog::info("Initializing logging system...");
 
@@ -1165,8 +1188,9 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
             // }
 
             std::string ipStr = svcCIDR->toString();
-            if (!parseIP(ipStr, svcCIDR->toString())) {
-				spdlog::info("Error: Invalid service-cidr IP %v",ipStr);
+            struct in_addr ipParsed;
+            if (!parseIP(ipStr, ipParsed)) {
+                spdlog::info("Error: Invalid service-cidr IP {}", ipStr);
                 return 1;
             }
 
@@ -1185,13 +1209,13 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
         // If ClusterDNS is set, parse and validate the addresses
 		std::vector<std::string> cdnsList = splitString(server.ControlConfig.ClusterDNS, ',');
         for (const auto& ip : cdnsList) {
-            std::string parsedIP;
+            struct in_addr parsedIP;
             if (!parseIP(ip, parsedIP)) {
                 std::cerr << "Error: invalid cluster-dns address " << ip << std::endl;
 				spdlog::info("Error: invalid cluster-dns address " );
                 return 1;
             }
-            server.ControlConfig.ClusterDNSs.push_back(parsedIP);
+            server.ControlConfig.ClusterDNSs.push_back(ip);
         }
     }
 
@@ -1249,7 +1273,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	try {
         // 转换为整数表示的 TLS 版本
         server.ControlConfig.TLSMinVersion = TLSVersion(tlsMinVersionArg);
-        std::cout << "TLS Min Version: " << server.ControlConfig.TLSMinVersion << std::endl;
+        std::cout << "TLS Min Version: " << server.ControlConfig.MinTLSVersion << std::endl;
     } catch (const std::invalid_argument& e) {
         // 处理错误，类似 Go 中的 errors.Wrap
         std::cerr << "Error: " << e.what() << std::endl;
@@ -1361,17 +1385,32 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 			}
 		}
 	}
-
-	spdlog::info("Starting " + version.Program + " " + "app.App.Version"+"v1.0");
-
-	// Step 1: Get and unset the environment variable
+	spdlog::info("Starting " + version.Program + " " + "app... App.Version "+"v1.0");
+    // 获取环境变量 NOTIFY_SOCKET 的值
     const char* notifySocket = std::getenv("NOTIFY_SOCKET");
-    if (notifySocket) {
-        std::cout << "Notify Socket: " << notifySocket << std::endl;
+    // 检查是否获取到环境变量
+    if (notifySocket != nullptr) {
+        std::cout << "NOTIFY_SOCKET = " << notifySocket << std::endl;
+    } else {
+        std::cout << "NOTIFY_SOCKET is not set." << std::endl;
     }
-
-    // std::unsetenv("NOTIFY_SOCKET");
-
+    // 删除环境变量 NOTIFY_SOCKET
+    unsetenv("NOTIFY_SOCKET");
+    std::cout << "NOTIFY_SOCKET has been unset." << std::endl;
+   // 为 HTTP 请求创建路由器
+    auto router = oatpp::web::server::HttpRouter::createShared();
+    // 路由 GET - "/index" 请求到处理程序
+    router->route("GET", "/index", std::make_shared<Handler>());
+    // 创建 HTTP 连接处理程序
+    auto connectionHandler = oatpp::web::server::HttpConnectionHandler::createShared(router);
+    // 创建 TCP 连接提供者
+    auto connectionProvider = oatpp::network::tcp::server::ConnectionProvider::createShared({server.ControlConfig.PrivateIP, 8080, oatpp::network::Address::IP_4});
+    // 创建服务器，它接受提供的 TCP 连接并将其传递给 HTTP 连接处理程序
+    oatpp::network::Server oatpp_server(connectionProvider, connectionHandler);
+    // 打印服务器端口
+    OATPP_LOGI("MyApp", "Server running on %s:%s", connectionProvider->getProperty("host").getData(),connectionProvider->getProperty("port").getData());
+    // 运行服务器
+    oatpp_server.run();
     // // 启动信号处理：ctx := signals.SetupSignalContext()用于捕获和处理系统信号，确保程序在收到信号时能安全退出。
 	// ctx = SetupSignalContext();
 
@@ -1491,10 +1530,16 @@ void new_server_command(boost::program_options::variables_map& vm) {
     // config.config_file = vm["config"].as<std::string>();
     // config.port = vm["port"].as<int>();
     // config.enable_logging = vm["enable-logging"].as<bool>();
-
+    config.DisableAgent = false;    //用于控制是否启动本地代理并注册本地kubelet
+    config.DisableETCD = false;  //用于控制是否禁用etcd
+    config.EgressSelectorMode = "pod";  //默认为pod，其实为可配置 "(networking) One of 'agent', 'cluster', 'pod', 'disabled'"
+    config.ExtraAPIArgs.push_back("tls-min-version=TLSv1.2");
     // 创建控制器实例
     CustomControllers leaderControllers, controllers;
 
     // 调用服务器启动函数
     server_run(vm, config, leaderControllers, controllers);
+
+    // 销毁 oatpp 环境
+    oatpp::base::Environment::destroy();
 }
