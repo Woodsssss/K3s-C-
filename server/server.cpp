@@ -211,6 +211,115 @@ std::string getArgValueFromList(const std::string& searchArg, const std::vector<
     return value;
 }
 
+std::vector<std::string> GetArgs(const std::map<std::string, std::string>& initialArgs, const std::vector<std::string>& extraArgs) {
+    const std::string hyphens = "--";
+
+    std::map<std::string, std::vector<std::string>> multiArgs;
+
+    for (const auto& unsplitArg : extraArgs) {
+        std::string arg;
+        std::string value = "true";
+        size_t eqPos = unsplitArg.find('=');
+        if (eqPos != std::string::npos) {
+            arg = unsplitArg.substr(0, eqPos);
+            value = unsplitArg.substr(eqPos + 1);
+        } else {
+            arg = unsplitArg;
+        }
+
+        // Remove hyphens and '+' or '-' suffixes
+        std::string cleanedArg = arg;
+        if (cleanedArg.size() > 2 && cleanedArg.substr(0, 2) == hyphens) {
+            cleanedArg = cleanedArg.substr(2);
+        }
+        if (!cleanedArg.empty() && (cleanedArg.back() == '+' || cleanedArg.back() == '-')) {
+            cleanedArg.pop_back();
+        }
+
+        auto it = initialArgs.find(cleanedArg);
+        bool initialValueExists = it != initialArgs.end();
+        std::vector<std::string>& existingValues = multiArgs[cleanedArg];
+
+        std::vector<std::string> newValues;
+        if (arg.back() == '+') { // Append value to initial args
+            if (initialValueExists) {
+                newValues.push_back(it->second);
+            }
+            newValues.insert(newValues.end(), existingValues.begin(), existingValues.end());
+            newValues.push_back(value);
+        } else if (arg.back() == '-') { // Prepend value to initial args
+            newValues.push_back(value);
+            if (initialValueExists) {
+                newValues.push_back(it->second);
+            }
+            newValues.insert(newValues.end(), existingValues.begin(), existingValues.end());
+        } else { // Append value ignoring initial args
+            newValues.insert(newValues.end(), existingValues.begin(), existingValues.end());
+            newValues.push_back(value);
+        }
+
+        multiArgs[cleanedArg] = newValues;
+    }
+
+    // Add any remaining initial args to the map
+    for (const auto& pair : initialArgs) {
+        if (multiArgs.find(pair.first) == multiArgs.end()) {
+            multiArgs[pair.first] = {pair.second};
+        }
+    }
+
+    // Get args so we can output them sorted while preserving the order of repeated keys
+    std::vector<std::string> keys;
+    for (const auto& pair : multiArgs) {
+        keys.push_back(pair.first);
+    }
+    std::sort(keys.begin(), keys.end());
+
+    std::vector<std::string> args;
+    for (const auto& arg : keys) {
+        for (const auto& value : multiArgs[arg]) {
+            std::ostringstream cmd;
+            cmd << hyphens << arg << "=" << value;
+            args.push_back(cmd.str());
+        }
+    }
+
+    return args;
+}
+
+
+std::error_code MkdirAll(const fs::path& path, fs::perms perm) {
+    // Fast path: if we can tell whether path is a directory or file, stop with success or error.
+    std::error_code ec;
+    fs::file_status status = fs::status(path, ec);
+    if (!ec) {
+        if (fs::is_directory(status)) {
+            return ec;
+        }
+        return std::make_error_code(std::errc::not_a_directory);
+    }
+
+    // Slow path: make sure parent exists and then call Mkdir for path.
+    if (path.has_parent_path()) {
+        if (!fs::exists(path.parent_path())) {
+            MkdirAll(path.parent_path(), perm);
+        }
+    }
+
+    // Parent now exists; invoke Mkdir and use its result.
+    if (!fs::create_directory(path, ec)) {
+        // Handle arguments like "foo/." by double-checking that directory doesn't exist.
+        if (ec == std::errc::file_exists) {
+            status = fs::status(path, ec);
+            if (!ec && fs::is_directory(status)) {
+                return ec;
+            }
+        }
+        return ec;
+    }
+    return ec;
+}
+
 // 获取TLS版本ID的函数
 uint16_t TLSVersion(const std::string& versionName) {
     if (versionName.empty()) {
@@ -878,6 +987,25 @@ std::vector<uint8_t> calculateMask(int prefixLength) {
     }
     return mask;
 }
+void StartServer(Context ctx, Config* config, cmds::Server* server) {
+    // 初始化数据目录并切换目录
+    // setupDataDirAndChdir(&config->ControlConfig);
+
+    // 设置无代理环境变量
+    // setNoProxyEnv(&config->ControlConfig);
+
+    // 启动 Kubernetes 控制平面
+    Server(ctx, &config->ControlConfig);
+
+    // 启动在 API 服务器就绪时的操作
+    // startOnAPIServerReady(ctx, config);
+
+    // 打印令牌
+    // printTokens(&config->ControlConfig);
+
+    // 写入 Kubernetes 配置
+    // writeKubeConfig(config->ControlConfig.Runtime.ServerCA, config);
+}
 
 // 处理服务器命令的函数
 int server_run(boost::program_options::variables_map& vm,Server_user& config, CustomControllers& leaderControllers, CustomControllers& controllers) {
@@ -1415,7 +1543,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	// ctx = SetupSignalContext();
 
     // // 启动服务器：调用server.StartServer(ctx, &serverConfig, cfg)启动控制平面各组件（如API服务器、etcd、控制器等）。
-	// StartServer(ctx, &server, config);
+	StartServer(ctx, &server, config);
     
     // // 健康检查和系统通知：监听API服务器和etcd的状态，确保其已启动并且处于运行状态。
     // // 模拟启动服务器状态
