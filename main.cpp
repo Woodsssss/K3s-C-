@@ -8,6 +8,7 @@
 #include <filesystem>
 #include "server/server.h"
 #include "agent/agent.h"
+#include <fmt/core.h>
 
 namespace po = boost::program_options;
 
@@ -112,7 +113,7 @@ int main(int argc, char* argv[]) {
             std::cout << desc << std::endl;
             return 0;
         }
-
+        fmt::print("容器编排系统启动!\n");
         // 根据用户输入的命令执行相应的函数
         if (vm.count("server")) {
             // 执行服务器命令
@@ -140,6 +141,5 @@ int main(int argc, char* argv[]) {
         spdlog::error("Error: {}", e.what());
         return 1;
     }
-
     return 0;
 }

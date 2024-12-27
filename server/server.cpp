@@ -26,7 +26,11 @@
 #include <unistd.h>  // for getuid
 #include <pwd.h>     // for getpwuid
 #include <sys/types.h>  // for getuid
-
+// oatpp 相关库
+#include "oatpp/web/server/HttpConnectionHandler.hpp"
+#include "oatpp/network/tcp/server/ConnectionProvider.hpp"
+#include "oatpp/network/Server.hpp"
+#include "handler.h"
 namespace fs = std::filesystem;
 
 std::string BindAddress;
@@ -885,7 +889,8 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     spdlog::info("Server is running...");
     // 将进程的标题设置为k3s server，隐藏敏感参数
     prctl(PR_SET_NAME, "k3s server", 0, 0, 0);
-    
+    // 初始化 oatpp 环境
+    oatpp::base::Environment::init();
     // 初始化日志系统
     spdlog::info("Initializing logging system...");
 
@@ -1380,23 +1385,32 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 			}
 		}
 	}
-
 	spdlog::info("Starting " + version.Program + " " + "app... App.Version "+"v1.0");
-
     // 获取环境变量 NOTIFY_SOCKET 的值
     const char* notifySocket = std::getenv("NOTIFY_SOCKET");
-    
     // 检查是否获取到环境变量
     if (notifySocket != nullptr) {
         std::cout << "NOTIFY_SOCKET = " << notifySocket << std::endl;
     } else {
         std::cout << "NOTIFY_SOCKET is not set." << std::endl;
     }
-
     // 删除环境变量 NOTIFY_SOCKET
     unsetenv("NOTIFY_SOCKET");
     std::cout << "NOTIFY_SOCKET has been unset." << std::endl;
-
+   // 为 HTTP 请求创建路由器
+    auto router = oatpp::web::server::HttpRouter::createShared();
+    // 路由 GET - "/index" 请求到处理程序
+    router->route("GET", "/index", std::make_shared<Handler>());
+    // 创建 HTTP 连接处理程序
+    auto connectionHandler = oatpp::web::server::HttpConnectionHandler::createShared(router);
+    // 创建 TCP 连接提供者
+    auto connectionProvider = oatpp::network::tcp::server::ConnectionProvider::createShared({server.ControlConfig.PrivateIP, 8080, oatpp::network::Address::IP_4});
+    // 创建服务器，它接受提供的 TCP 连接并将其传递给 HTTP 连接处理程序
+    oatpp::network::Server oatpp_server(connectionProvider, connectionHandler);
+    // 打印服务器端口
+    OATPP_LOGI("MyApp", "Server running on %s:%s", connectionProvider->getProperty("host").getData(),connectionProvider->getProperty("port").getData());
+    // 运行服务器
+    oatpp_server.run();
     // // 启动信号处理：ctx := signals.SetupSignalContext()用于捕获和处理系统信号，确保程序在收到信号时能安全退出。
 	// ctx = SetupSignalContext();
 
@@ -1517,6 +1531,7 @@ void new_server_command(boost::program_options::variables_map& vm) {
     // config.port = vm["port"].as<int>();
     // config.enable_logging = vm["enable-logging"].as<bool>();
     config.DisableAgent = false;    //用于控制是否启动本地代理并注册本地kubelet
+    config.DisableETCD = false;  //用于控制是否禁用etcd
     config.EgressSelectorMode = "pod";  //默认为pod，其实为可配置 "(networking) One of 'agent', 'cluster', 'pod', 'disabled'"
     config.ExtraAPIArgs.push_back("tls-min-version=TLSv1.2");
     // 创建控制器实例
@@ -1524,4 +1539,7 @@ void new_server_command(boost::program_options::variables_map& vm) {
 
     // 调用服务器启动函数
     server_run(vm, config, leaderControllers, controllers);
+
+    // 销毁 oatpp 环境
+    oatpp::base::Environment::destroy();
 }
