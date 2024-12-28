@@ -189,5 +189,141 @@ int apiServer(const Context& ctx, Config_Control* cfg) {
 
 
 
+int Scheduler(const Config::Context& ctx, Config::Control* cfg) {
+    std::unordered_map<std::string, std::string> argsMap = {
+        {"kubeconfig", cfg->Runtime.KubeConfigScheduler},
+        {"authorization-kubeconfig", cfg->Runtime.KubeConfigScheduler},
+        {"authentication-kubeconfig", cfg->Runtime.KubeConfigScheduler},
+        {"bind-address", cfg->Loopback(false)},
+        {"secure-port", "10259"},
+        {"profiling", "false"}
+    };
+
+    if (cfg->NoLeaderElect) {
+        argsMap["leader-elect"] = "false";
+    }
+
+    if (cfg->VLevel != 0) {
+        argsMap["v"] = ToString(cfg->VLevel);
+    }
+    if (!cfg->VModule.empty()) {
+        argsMap["vmodule"] = cfg->VModule;
+    }
+
+    std::vector<std::string> args;
+    for (const auto& arg : argsMap) {
+        args.push_back(arg.first + "=" + arg.second);
+    }
+
+    for (const auto& extraArg : cfg->ExtraSchedulerAPIArgs) {
+        args.push_back(extraArg);
+    }
+
+    std::string argsStr = "";
+    for (const auto& arg : args) {
+        argsStr += arg + " ";
+    }
+
+    LogInfo("Running kube-scheduler " + argsStr);
+
+    return Scheduler(ctx, cfg->Runtime.KubeConfigScheduler, args);
+}
+
+
+// 模拟strconv.Itoa函数
+std::string ToString(int value) {
+    return std::to_string(value);
+}
+
+// 模拟logrus.Infof函数
+void LogInfo(const std::string& message) {
+    std::cout << message << std::endl;
+}
+
+// 模拟executor.ControllerManager函数
+int ControllerManager(const Config::Context& ctx, const std::string& apiServerReady, const std::vector<std::string>& args) {
+    // 实际实现需要根据具体情况来编写
+    std::cout << "Starting controller manager with args: ";
+    for (const auto& arg : args) {
+        std::cout << arg << " ";
+    }
+    std::cout << std::endl;
+    return 0; // 假设成功执行
+}
+
+// 模拟util.JoinIPNets函数
+std::string JoinIPNets(const std::vector<std::string>& ipNets) {
+    std::string result;
+    for (const auto& ipNet : ipNets) {
+        if (!result.empty()) result += ",";
+        result += ipNet;
+    }
+    return result;
+}
+
+// 主函数，模拟Go语言中的controllerManager函数
+int ControllerManager(const Config::Context& ctx, Config::Control* cfg) {
+    std::unordered_map<std::string, std::string> argsMap = {
+        {"controllers", "*,tokencleaner"},
+        {"kubeconfig", cfg->Runtime.KubeConfigController},
+        {"authorization-kubeconfig", cfg->Runtime.KubeConfigController},
+        {"authentication-kubeconfig", cfg->Runtime.KubeConfigController},
+        {"service-account-private-key-file", cfg->Runtime.ServiceCurrentKey},
+        {"allocate-node-cidrs", "true"},
+        {"service-cluster-ip-range", JoinIPNets(cfg->ServiceIPRanges)},
+        {"cluster-cidr", JoinIPNets(cfg->ClusterIPRanges)},
+        {"root-ca-file", cfg->Runtime.ServerCA},
+        {"profiling", "false"},
+        {"bind-address", cfg->Loopback(false)},
+        {"secure-port", "10257"},
+        {"use-service-account-credentials", "true"},
+        {"cluster-signing-kube-apiserver-client-cert-file", cfg->Runtime.SigningClientCA},
+        {"cluster-signing-kube-apiserver-client-key-file", cfg->Runtime.ClientCAKey},
+        {"cluster-signing-kubelet-client-cert-file", cfg->Runtime.SigningClientCA},
+        {"cluster-signing-kubelet-client-key-file", cfg->Runtime.ClientCAKey},
+        {"cluster-signing-kubelet-serving-cert-file", cfg->Runtime.SigningServerCA},
+        {"cluster-signing-kubelet-serving-key-file", cfg->Runtime.ServerCAKey},
+        {"cluster-signing-legacy-unknown-cert-file", cfg->Runtime.SigningServerCA},
+        {"cluster-signing-legacy-unknown-key-file", cfg->Runtime.ServerCAKey},
+    };
+
+    if (cfg->NoLeaderElect) {
+        argsMap["leader-elect"] = "false";
+    }
+    if (!cfg->DisableCCM) {
+        argsMap["configure-cloud-routes"] = "false";
+        argsMap["controllers"] += ",-service,-route,-cloud-node-lifecycle";
+    }
+
+    if (cfg->VLevel != 0) {
+        argsMap["v"] = ToString(cfg->VLevel);
+    }
+    if (!cfg->VModule.empty()) {
+        argsMap["vmodule"] = cfg->VModule;
+    }
+
+    std::vector<std::string> args;
+    for (const auto& arg : argsMap) {
+        args.push_back(arg.first + "=" + arg.second);
+    }
+    for (const auto& extraArg : cfg->ExtraControllerArgs) {
+        args.push_back(extraArg);
+    }
+
+    // 模拟日志输出
+    std::string logMessage = "Running kube-controller-manager ";
+    for (const auto& arg : args) {
+        logMessage += arg + " ";
+    }
+    LogInfo(logMessage);
+
+    // 调用模拟的ControllerManager函数
+    return ControllerManager(ctx, cfg->Runtime.KubeConfigController, args);
+}
+
+
+
+
+
 
 
