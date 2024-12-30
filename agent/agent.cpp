@@ -16,7 +16,6 @@
 #include <boost/asio.hpp>  // For context and IO services
 #include <boost/bind.hpp>
 
-
 // 声明函数
 void new_agent_command(boost::program_options::variables_map& vm){
     // 代理启动逻辑
@@ -25,6 +24,15 @@ void new_agent_command(boost::program_options::variables_map& vm){
     prctl(PR_SET_NAME, "k3s agent", 0, 0, 0);
     // 初始化日志系统1
     spdlog::info("Initializing logging system...");
-
     
+    // 调用 send_http_request 函数，传入 URL
+    std::string url = "http://192.168.52.129:8080/index";
+    std::string response = send_http_request(url);
+
+    // 如果请求成功，打印响应内容
+    if (!response.empty()) {
+        std::cout << "Response:\n" << response << std::endl;
+    } else {
+        std::cout << "Request failed or no response." << std::endl;
+    }
 };
