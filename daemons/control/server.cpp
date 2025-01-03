@@ -195,7 +195,7 @@ int scheduler(const std::shared_ptr<Context>& ctx, const ControlConfig& cfg) {
         {"kubeconfig", runtime.KubeConfigScheduler},
         {"authorization-kubeconfig", runtime.KubeConfigScheduler},
         {"authentication-kubeconfig", runtime.KubeConfigScheduler},
-        {"bind-address", cfg.Loopback(false)},
+        // {"bind-address", cfg.Loopback(false)},
         {"secure-port", "10259"},
         {"profiling", "false"}
     };
