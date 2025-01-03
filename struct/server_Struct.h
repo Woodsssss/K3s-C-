@@ -4,7 +4,7 @@
 #include <future>
 #include <cctype>
 #include <algorithm>
-#include <grpcpp/grpcpp.h>  // For gRPC server
+// #include <grpcpp/grpcpp.h>  // For gRPC server
 #include <stdexcept>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -241,6 +241,7 @@ struct CriticalControlArgs {
     bool SupervisorMetrics = false;              // 启用监控指标
 };
 
+
 // ControlRuntimeBootstrap 结构体
 struct ControlRuntimeBootstrap {
     std::string ETCDServerCA;       // ETCD 服务器证书
@@ -286,7 +287,7 @@ struct CustomControllers {
     void executeAll(std::shared_ptr<Context> ctx) {
         for (auto& controller : controllers) {
             try {
-                controller(ctx); // 调用控制器
+                // controller(ctx); // 调用控制器
             } catch (const std::exception& e) {
                 std::cerr << "Error while executing controller: " << e.what() << std::endl;
             }
@@ -377,7 +378,12 @@ struct ControlRuntime : public ControlRuntimeBootstrap{
     ETCDConfig EtcdConfig;     // ETCD 配置
 };
 
-
+    // 假设 Context 是一个类或结构体
+struct constContext {
+        int signalId;       // 信号 ID
+        bool isRunning;     // 是否正在运行
+        std::string name;   // 上下文名称
+};
 
 struct ConnectionPoolConf {
     int MaxIdle;                 // Zero means defaultMaxIdleConns; negative means 0
@@ -396,7 +402,7 @@ struct ConnectionPoolConf {
 
 // Assuming appropriate includes are added based on your environment
 struct EndpointConfig {
-    std::shared_ptr<grpc::Server> GRPCServer;  // gRPC Server (using shared_ptr for memory management)
+    // std::shared_ptr<grpc::Server> GRPCServer;  // gRPC Server (using shared_ptr for memory management)
     std::string Listener;                      // Listener address (string)
     std::string Endpoint;                      // Endpoint address (string)
     ConnectionPoolConf ConnectionPoolConfig;  // Connection pool configuration

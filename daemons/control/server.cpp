@@ -1,5 +1,3 @@
-// server.cpp
-
 #include <cstdlib>  // 包含 C++ 标准库的 std::getenv
 #include "/usr/include/stdlib.h"
 #include <iostream>
@@ -27,7 +25,8 @@
 #include "server_Struct.h"
 #include "agent_Struct.h"
 
-
+// scheduler.h
+void scheduler(Context* ctx, Control* cfg);
 // Server 函数定义
 void Server(Context *ctx, Control *cfg) {
     // 初始化随机数生成器
@@ -41,16 +40,16 @@ void Server(Context *ctx, Control *cfg) {
     // cfg->Runtime.Tunnel = tunnel;
 
     // 启动 API 服务器相关的处理
-    if (!cfg->DisableAPIServer) {
-        // 在后台等待 API 服务器处理程序
-        // waitForAPIServerHandlers(ctx, &cfg->Runtime);
+    // if (!cfg->DisableAPIServer) {
+    //     // 在后台等待 API 服务器处理程序
+    //     // waitForAPIServerHandlers(ctx, &cfg->Runtime);
 
-        // 启动 API 服务器
-        apiServer(ctx, cfg);
-    }
+    //     // 启动 API 服务器
+    //     apiServer(ctx, cfg);
+    // }
 
     // 等待 API 服务器在后台可用
-    waitForAPIServerInBackground(ctx, &cfg->Runtime);
+    // waitForAPIServerInBackground(ctx, &cfg->Runtime);
 
     // 启动调度器
     if (!cfg->DisableScheduler) {
@@ -59,7 +58,7 @@ void Server(Context *ctx, Control *cfg) {
 
     // 启动控制器管理器
     if (!cfg->DisableControllerManager) {
-        controllerManager(ctx, cfg);
+        // controllerManager(ctx, cfg);
     }
 
     // 启动云控制器管理器
@@ -69,7 +68,7 @@ void Server(Context *ctx, Control *cfg) {
 }
 
 
-int prepare(const Context& ctx, Config_Control* config) {
+void prepare(const Context* ctx, const Control* cfg) {
     // if (ctx.cancelled()) {
     //     // 如果上下文被取消，则不执行任何操作
     //     return -1;
@@ -97,12 +96,12 @@ int prepare(const Context& ctx, Config_Control* config) {
     // // 设置 ETCDReady 状态
     // config->ETCDReady = ready;
 
-    return 0; // 成功
+    // return 0; // 成功
 }
 
 
 
-void setupStorageBackend(std::map<std::string, std::string>& argsMap, const ControlConfig& cfg) {
+void setupStorageBackend(std::map<std::string, std::string>& argsMap, const Control& cfg) {
     argsMap["storage-backend"] = "etcd3";
 
     // specify the endpoints
@@ -122,111 +121,108 @@ void setupStorageBackend(std::map<std::string, std::string>& argsMap, const Cont
     }
 }
 
-int apiServer(const Context& ctx, Config_Control* cfg) {
-    Runtime runtime = cfg->Runtime;
-    std::unordered_map<std::string, std::string> argsMap;
+// int apiServer(const Context* ctx, Control* cfg) {
+//     Runtime runtime = cfg->Runtime;
+//     std::unordered_map<std::string, std::string> argsMap;
 
-    setupStorageBackend(argsMap, *cfg);
+//     setupStorageBackend(argsMap, *cfg);
 
-    std::string certDir = filepathJoin(cfg->DataDir, "tls", "temporary-certs");
-    if (MkdirAll(certDir, 0700) != 0) {
-        // 处理错误
-        return -1;
+//     std::string certDir = filepathJoin(cfg->DataDir, "tls", "temporary-certs");
+//     if (MkdirAll(certDir, 0700) != 0) {
+//         // 处理错误
+//         return -1;
+//     };
+
+
+//     std::vector<std::string> args = GetArgs(argsMap, cfg->ExtraAPIArgs);
+
+//     // logrusInfof("Running kube-apiserver %s", GetArgs(args));
+
+//     // return 0; // 成功
+// }
+
+#include <string>
+#include <map>
+#include <vector>
+#include <iostream>
+#include <memory>
+
+// 模拟上下文类
+class Context {
+    // 可以添加上下文相关的成员和方法
+};
+
+// 模拟 RuntimeConfig 结构体
+struct RuntimeConfig {
+    std::string KubeConfigScheduler;
+    bool APIServerReady;
+};
+
+// 模拟 ControlConfig 结构体
+struct ControlConfig {
+    RuntimeConfig Runtime;
+    bool NoLeaderElect;
+    int VLevel;
+    std::string VModule;
+    std::string Loopback(bool useIPv6);
+    std::vector<std::string> ExtraSchedulerAPIArgs;
+};
+
+// 模拟 GetArgs 函数
+std::vector<std::string> GetArgs(const std::map<std::string, std::string>& argsMap, const std::vector<std::string>& extraArgs) {
+    std::vector<std::string> args;
+    for (const auto& pair : argsMap) {
+        args.push_back("--" + pair.first + "=" + pair.second);
     }
-
-    // argsMap["cert-dir"] = certDir
-	// argsMap["allow-privileged"] = "true"
-	// argsMap["enable-bootstrap-token-auth"] = "true"
-	// argsMap["authorization-mode"] = strings.Join([]string{modes.ModeNode, modes.ModeRBAC}, ",")
-	// argsMap["service-account-signing-key-file"] = runtime.ServiceCurrentKey
-	// argsMap["service-cluster-ip-range"] = util.JoinIPNets(cfg.ServiceIPRanges)
-	// argsMap["service-node-port-range"] = cfg.ServiceNodePortRange.String()
-	// argsMap["advertise-port"] = strconv.Itoa(cfg.AdvertisePort)
-	// if cfg.AdvertiseIP != "" {
-	// 	argsMap["advertise-address"] = cfg.AdvertiseIP
-	// }
-	// argsMap["secure-port"] = strconv.Itoa(cfg.APIServerPort)
-	// if cfg.APIServerBindAddress == "" {
-	// 	argsMap["bind-address"] = cfg.Loopback(false)
-	// } else {
-	// 	argsMap["bind-address"] = cfg.APIServerBindAddress
-	// }
-	// if cfg.EgressSelectorMode != config.EgressSelectorModeDisabled {
-	// 	argsMap["enable-aggregator-routing"] = "true"
-	// 	argsMap["egress-selector-config-file"] = runtime.EgressSelectorConfig
-	// }
-	// argsMap["tls-cert-file"] = runtime.ServingKubeAPICert
-	// argsMap["tls-private-key-file"] = runtime.ServingKubeAPIKey
-	// argsMap["service-account-key-file"] = runtime.ServiceKey
-	// argsMap["service-account-issuer"] = "https://kubernetes.default.svc." + cfg.ClusterDomain
-	// argsMap["api-audiences"] = "https://kubernetes.default.svc." + cfg.ClusterDomain + "," + version.Program
-	// argsMap["kubelet-certificate-authority"] = runtime.ServerCA
-	// argsMap["kubelet-client-certificate"] = runtime.ClientKubeAPICert
-	// argsMap["kubelet-client-key"] = runtime.ClientKubeAPIKey
-	// if cfg.FlannelExternalIP {
-	// 	argsMap["kubelet-preferred-address-types"] = "ExternalIP,InternalIP,Hostname"
-	// } else {
-	// 	argsMap["kubelet-preferred-address-types"] = "InternalIP,ExternalIP,Hostname"
-	// }
-	// argsMap["requestheader-client-ca-file"] = runtime.RequestHeaderCA
-	// argsMap["requestheader-allowed-names"] = deps.RequestHeaderCN
-	// argsMap["proxy-client-cert-file"] = runtime.ClientAuthProxyCert
-	// argsMap["proxy-client-key-file"] = runtime.ClientAuthProxyKey
-	// argsMap["requestheader-extra-headers-prefix"] = "X-Remote-Extra-"
-	// argsMap["requestheader-group-headers"] = "X-Remote-Group"
-	// argsMap["requestheader-username-headers"] = "X-Remote-User"
-	// argsMap["client-ca-file"] = runtime.ClientCA
-	// argsMap["enable-admission-plugins"] = "NodeRestriction"
-	// argsMap["anonymous-auth"] = "false"
-	// argsMap["profiling"] = "false"
-
-    std::vector<std::string> args = GetArgs(argsMap, cfg->ExtraAPIArgs);
-
-    // logrusInfof("Running kube-apiserver %s", GetArgs(args));
-
-    return 0; // 成功
+    args.insert(args.end(), extraArgs.begin(), extraArgs.end());
+    return args;
 }
 
+// 模拟 Scheduler 函数
+void Scheduler(const std::shared_ptr<Context>& ctx, const RuntimeConfig& runtime, const std::vector<std::string>& args) {
+    std::cout << "Running kube-scheduler with args: ";
+    for (const auto& arg : args) {
+        std::cout << arg << " ";
+    }
+    std::cout << std::endl;
+}
 
+// 模拟 scheduler 函数
+int scheduler(const std::shared_ptr<Context>& ctx, const ControlConfig& cfg) {
+    const auto& runtime = cfg.Runtime;
 
-int Scheduler(const Config::Context& ctx, Config::Control* cfg) {
-    std::unordered_map<std::string, std::string> argsMap = {
-        {"kubeconfig", cfg->Runtime.KubeConfigScheduler},
-        {"authorization-kubeconfig", cfg->Runtime.KubeConfigScheduler},
-        {"authentication-kubeconfig", cfg->Runtime.KubeConfigScheduler},
-        {"bind-address", cfg->Loopback(false)},
+    std::map<std::string, std::string> argsMap = {
+        {"kubeconfig", runtime.KubeConfigScheduler},
+        {"authorization-kubeconfig", runtime.KubeConfigScheduler},
+        {"authentication-kubeconfig", runtime.KubeConfigScheduler},
+        {"bind-address", cfg.Loopback(false)},
         {"secure-port", "10259"},
         {"profiling", "false"}
     };
 
-    if (cfg->NoLeaderElect) {
+    if (cfg.NoLeaderElect) {
         argsMap["leader-elect"] = "false";
     }
 
-    if (cfg->VLevel != 0) {
-        argsMap["v"] = ToString(cfg->VLevel);
-    }
-    if (!cfg->VModule.empty()) {
-        argsMap["vmodule"] = cfg->VModule;
+    if (cfg.VLevel != 0) {
+        argsMap["v"] = std::to_string(cfg.VLevel);
     }
 
-    std::vector<std::string> args;
-    for (const auto& arg : argsMap) {
-        args.push_back(arg.first + "=" + arg.second);
+    if (!cfg.VModule.empty()) {
+        argsMap["vmodule"] = cfg.VModule;
     }
 
-    for (const auto& extraArg : cfg->ExtraSchedulerAPIArgs) {
-        args.push_back(extraArg);
-    }
+    auto args = GetArgs(argsMap, cfg.ExtraSchedulerAPIArgs);
 
-    std::string argsStr = "";
+    std::cout << "Running kube-scheduler with args: ";
     for (const auto& arg : args) {
-        argsStr += arg + " ";
+        std::cout << arg << " ";
     }
+    std::cout << std::endl;
 
-    LogInfo("Running kube-scheduler " + argsStr);
+    Scheduler(ctx, runtime, args);
 
-    return Scheduler(ctx, cfg->Runtime.KubeConfigScheduler, args);
+    return 0; // 返回 0 表示成功
 }
 
 
@@ -241,15 +237,15 @@ void LogInfo(const std::string& message) {
 }
 
 // 模拟executor.ControllerManager函数
-int ControllerManager(const Config::Context& ctx, const std::string& apiServerReady, const std::vector<std::string>& args) {
-    // 实际实现需要根据具体情况来编写
-    std::cout << "Starting controller manager with args: ";
-    for (const auto& arg : args) {
-        std::cout << arg << " ";
-    }
-    std::cout << std::endl;
-    return 0; // 假设成功执行
-}
+// int ControllerManager(const Config::Context& ctx, const std::string& apiServerReady, const std::vector<std::string>& args) {
+//     // 实际实现需要根据具体情况来编写
+//     std::cout << "Starting controller manager with args: ";
+//     for (const auto& arg : args) {
+//         std::cout << arg << " ";
+//     }
+//     std::cout << std::endl;
+//     return 0; // 假设成功执行
+// }
 
 // 模拟util.JoinIPNets函数
 std::string JoinIPNets(const std::vector<std::string>& ipNets) {
@@ -261,65 +257,65 @@ std::string JoinIPNets(const std::vector<std::string>& ipNets) {
     return result;
 }
 
-// 主函数，模拟Go语言中的controllerManager函数
-int ControllerManager(const Config::Context& ctx, Config::Control* cfg) {
-    std::unordered_map<std::string, std::string> argsMap = {
-        {"controllers", "*,tokencleaner"},
-        {"kubeconfig", cfg->Runtime.KubeConfigController},
-        {"authorization-kubeconfig", cfg->Runtime.KubeConfigController},
-        {"authentication-kubeconfig", cfg->Runtime.KubeConfigController},
-        {"service-account-private-key-file", cfg->Runtime.ServiceCurrentKey},
-        {"allocate-node-cidrs", "true"},
-        {"service-cluster-ip-range", JoinIPNets(cfg->ServiceIPRanges)},
-        {"cluster-cidr", JoinIPNets(cfg->ClusterIPRanges)},
-        {"root-ca-file", cfg->Runtime.ServerCA},
-        {"profiling", "false"},
-        {"bind-address", cfg->Loopback(false)},
-        {"secure-port", "10257"},
-        {"use-service-account-credentials", "true"},
-        {"cluster-signing-kube-apiserver-client-cert-file", cfg->Runtime.SigningClientCA},
-        {"cluster-signing-kube-apiserver-client-key-file", cfg->Runtime.ClientCAKey},
-        {"cluster-signing-kubelet-client-cert-file", cfg->Runtime.SigningClientCA},
-        {"cluster-signing-kubelet-client-key-file", cfg->Runtime.ClientCAKey},
-        {"cluster-signing-kubelet-serving-cert-file", cfg->Runtime.SigningServerCA},
-        {"cluster-signing-kubelet-serving-key-file", cfg->Runtime.ServerCAKey},
-        {"cluster-signing-legacy-unknown-cert-file", cfg->Runtime.SigningServerCA},
-        {"cluster-signing-legacy-unknown-key-file", cfg->Runtime.ServerCAKey},
-    };
+// 主函数，模拟的controllerManager函数
+// int ControllerManager(const Config::Context& ctx, Config::Control* cfg) {
+//     std::unordered_map<std::string, std::string> argsMap = {
+//         {"controllers", "*,tokencleaner"},
+//         {"kubeconfig", cfg->Runtime.KubeConfigController},
+//         {"authorization-kubeconfig", cfg->Runtime.KubeConfigController},
+//         {"authentication-kubeconfig", cfg->Runtime.KubeConfigController},
+//         {"service-account-private-key-file", cfg->Runtime.ServiceCurrentKey},
+//         {"allocate-node-cidrs", "true"},
+//         {"service-cluster-ip-range", JoinIPNets(cfg->ServiceIPRanges)},
+//         {"cluster-cidr", JoinIPNets(cfg->ClusterIPRanges)},
+//         {"root-ca-file", cfg->Runtime.ServerCA},
+//         {"profiling", "false"},
+//         {"bind-address", cfg->Loopback(false)},
+//         {"secure-port", "10257"},
+//         {"use-service-account-credentials", "true"},
+//         {"cluster-signing-kube-apiserver-client-cert-file", cfg->Runtime.SigningClientCA},
+//         {"cluster-signing-kube-apiserver-client-key-file", cfg->Runtime.ClientCAKey},
+//         {"cluster-signing-kubelet-client-cert-file", cfg->Runtime.SigningClientCA},
+//         {"cluster-signing-kubelet-client-key-file", cfg->Runtime.ClientCAKey},
+//         {"cluster-signing-kubelet-serving-cert-file", cfg->Runtime.SigningServerCA},
+//         {"cluster-signing-kubelet-serving-key-file", cfg->Runtime.ServerCAKey},
+//         {"cluster-signing-legacy-unknown-cert-file", cfg->Runtime.SigningServerCA},
+//         {"cluster-signing-legacy-unknown-key-file", cfg->Runtime.ServerCAKey},
+//     };
 
-    if (cfg->NoLeaderElect) {
-        argsMap["leader-elect"] = "false";
-    }
-    if (!cfg->DisableCCM) {
-        argsMap["configure-cloud-routes"] = "false";
-        argsMap["controllers"] += ",-service,-route,-cloud-node-lifecycle";
-    }
+//     if (cfg->NoLeaderElect) {
+//         argsMap["leader-elect"] = "false";
+//     }
+//     if (!cfg->DisableCCM) {
+//         argsMap["configure-cloud-routes"] = "false";
+//         argsMap["controllers"] += ",-service,-route,-cloud-node-lifecycle";
+//     }
 
-    if (cfg->VLevel != 0) {
-        argsMap["v"] = ToString(cfg->VLevel);
-    }
-    if (!cfg->VModule.empty()) {
-        argsMap["vmodule"] = cfg->VModule;
-    }
+//     if (cfg->VLevel != 0) {
+//         argsMap["v"] = ToString(cfg->VLevel);
+//     }
+//     if (!cfg->VModule.empty()) {
+//         argsMap["vmodule"] = cfg->VModule;
+//     }
 
-    std::vector<std::string> args;
-    for (const auto& arg : argsMap) {
-        args.push_back(arg.first + "=" + arg.second);
-    }
-    for (const auto& extraArg : cfg->ExtraControllerArgs) {
-        args.push_back(extraArg);
-    }
+//     std::vector<std::string> args;
+//     for (const auto& arg : argsMap) {
+//         args.push_back(arg.first + "=" + arg.second);
+//     }
+//     for (const auto& extraArg : cfg->ExtraControllerArgs) {
+//         args.push_back(extraArg);
+//     }
 
-    // 模拟日志输出
-    std::string logMessage = "Running kube-controller-manager ";
-    for (const auto& arg : args) {
-        logMessage += arg + " ";
-    }
-    LogInfo(logMessage);
+//     // 模拟日志输出
+//     std::string logMessage = "Running kube-controller-manager ";
+//     for (const auto& arg : args) {
+//         logMessage += arg + " ";
+//     }
+//     LogInfo(logMessage);
 
-    // 调用模拟的ControllerManager函数
-    return ControllerManager(ctx, cfg->Runtime.KubeConfigController, args);
-}
+//     // 调用模拟的ControllerManager函数
+//     return ControllerManager(ctx, cfg->Runtime.KubeConfigController, args);
+// }
 
 
 

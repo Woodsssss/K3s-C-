@@ -325,7 +325,7 @@ uint16_t TLSVersion(const std::string& versionName) {
     if (versionName.empty()) {
         return DefaultTLSVersion(); // 如果传入空字符串，则返回默认版本
     }
-    
+
     auto it = tls_versions.find(versionName);
     if (it != tls_versions.end()) {
         return it->second; // 如果找到对应的版本，返回版本ID
@@ -449,11 +449,11 @@ std::string ReadFile(const std::string& path) {
 //SplitStringSlice overwrite
 std::vector<std::string> SplitStringSlice(const std::vector<std::string>& ss) {
     std::vector<std::string> result;
-    
+
     for (const auto& s : ss) {
         std::string token;
         std::stringstream ss_stream(s);
-        
+
         // Split the string by commas
         while (std::getline(ss_stream, token, ',')) {
             result.push_back(token);
@@ -468,7 +468,7 @@ std::string GetIPFromInterface(const std::string& ifaceName) {
     struct ifaddrs *ifAddrStruct = nullptr;
     struct ifaddrs *ifa = nullptr;
     void *tmpAddrPtr = nullptr;
-    
+
     // 获取所有网络接口的信息
     if (getifaddrs(&ifAddrStruct) == -1) {
         throw std::runtime_error("Failed to get network interfaces");
@@ -479,15 +479,15 @@ std::string GetIPFromInterface(const std::string& ifaceName) {
         if (ifa->ifa_addr == nullptr) {
             continue;
         }
-        
+
         // 检查是否是我们要找的接口，并且是一个IPv4地址
         if (ifa->ifa_name == ifaceName && ifa->ifa_addr->sa_family == AF_INET) {
             tmpAddrPtr = &((struct sockaddr_in*)ifa->ifa_addr)->sin_addr;
-            
+
             // 将IP地址转为字符串形式
             char addressBuffer[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
-            
+
             // 返回找到的IP地址
             freeifaddrs(ifAddrStruct);
             return std::string(addressBuffer);
@@ -838,7 +838,7 @@ std::string Resolve(std::string s) {
 // LocalHome 函数：返回解析后的路径，如果 dataDir 为空则使用默认值
 std::string LocalHome(const std::string& dataDir, bool forceLocal) {
     std::string finalDataDir = dataDir;
-    
+
     // 如果传入的 dataDir 为空，根据用户身份选择默认路径
     if (finalDataDir.empty()) {
         if (getuid() == 0 && !forceLocal) {  // root 用户
@@ -987,7 +987,13 @@ std::vector<uint8_t> calculateMask(int prefixLength) {
     }
     return mask;
 }
-void StartServer(Context ctx, Config* config, cmds::Server* server) {
+
+
+// 声明
+void Server(Context ctx, Control* config);
+
+
+void StartServer(Context ctx, Config* config, Server_user* server) {
     // 初始化数据目录并切换目录
     // setupDataDirAndChdir(&config->ControlConfig);
 
@@ -1109,7 +1115,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 			server.ControlConfig.EtcdS3 = config.EtcdS3;
 		}
     }else{
-        spdlog::info("ETCD snapshots are disabled");       
+        spdlog::info("ETCD snapshots are disabled");
     }
 
     if (config.ClusterResetRestorePath != "" && !config.ClusterReset ){
@@ -1132,12 +1138,12 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
 	if (server.ControlConfig.Datastore.Endpoint != "" && server.ControlConfig.DisableAPIServer) {
 		spdlog::info("invalid flag use; cannot use --disable-apiserver with --datastore-endpoint");
-        return 1;		
+        return 1;
 	}
 
 	if (server.ControlConfig.Datastore.Endpoint != "" && server.ControlConfig.DisableETCD) {
 		spdlog::info("invalid flag use; cannot use --disable-etcd with --datastore-endpoint");
-        return 1;			
+        return 1;
 	}
 
 	if (server.ControlConfig.DisableAPIServer){
@@ -1175,10 +1181,10 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
 	server.ControlConfig.ServerNodeName = nodeName;
 	server.ControlConfig.SANs.push_back("127.0.0.1");
-	server.ControlConfig.SANs.push_back("::1");	
-	server.ControlConfig.SANs.push_back("localhost");	
-	server.ControlConfig.SANs.push_back(nodeName);			
-	
+	server.ControlConfig.SANs.push_back("::1");
+	server.ControlConfig.SANs.push_back("localhost");
+	server.ControlConfig.SANs.push_back(nodeName);
+
 	// 处理返回的 IP 列表
     for (const auto& ip : nodeIPs) {
         server.ControlConfig.SANs.push_back(ip);
@@ -1206,7 +1212,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	// 配置 Kubernetes 集群的 ClusterIPRanges，即集群内部用于通信的 IP 地址范围。
 	std::string	ListenAddress = "";
 	std::string	clusterCIDR = "";
-	std::string	serviceCIDR = "";	
+	std::string	serviceCIDR = "";
 	if(IsIPv4(nodeIPs[0])){
 		ListenAddress = "0.0.0.0";
 		clusterCIDR = "10.42.0.0/16";
@@ -1220,7 +1226,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 		ListenAddress = "";
 		clusterCIDR = "";
 		serviceCIDR = "";
-		spdlog::info("ip: %v is not ipv4 or ipv6", nodeIPs[0]);	
+		spdlog::info("ip: %v is not ipv4 or ipv6", nodeIPs[0]);
 	}
 
     // 检查 ClusterCIDR 是否为空，如果为空，则设置为默认值
@@ -1234,7 +1240,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
     // 循环处理每个 CIDR
     for (const auto& cidr : configClusterCIDR) {
-        std::vector<std::string> cidrList = splitString(cidr, ',');       
+        std::vector<std::string> cidrList = splitString(cidr, ',');
         for (const auto& singleCIDR : cidrList) {
             size_t slashPos = singleCIDR .find('/');
             std::string ipAddress;
@@ -1245,7 +1251,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
                 mask = calculateMask(prefixLength);  // 根据前缀长度计算掩码
             } else {
                 throw std::invalid_argument("Invalid singleCIDR format");
-            }       
+            }
             IPNet parsed = IPNet(IP(ipAddress),mask);
             // if (!parseCIDR(ipAddress, parsed)) {
             //     std::cerr << "Invalid service-cidr " << singleCIDR << std::endl;
@@ -1281,7 +1287,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
                 mask = calculateMask(prefixLength);  // 根据前缀长度计算掩码
             } else {
                 throw std::invalid_argument("Invalid singleCIDR format");
-            }       
+            }
             IPNet parsedIP = IPNet(IP(ipAddress),mask);
             // if (!parseCIDR(ipAddress, parsed)) {
             //     std::cerr << "Invalid service-cidr " << singleCIDR << std::endl;
@@ -1293,7 +1299,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
             server.ControlConfig.ServiceIPRanges.push_back(parsedPtr);
         }
     }
-	
+
 	// set ServiceIPRange to the first address (first defined IPFamily is preferred)
 	server.ControlConfig.ServiceIPRange = server.ControlConfig.ServiceIPRanges[0];
 
@@ -1332,7 +1338,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 			spdlog::info("Error: No valid IPv4 service CIDR found" );
             return 1;
         }
-    } 
+    }
 	else{
         // If ClusterDNS is set, parse and validate the addresses
 		std::vector<std::string> cdnsList = splitString(server.ControlConfig.ClusterDNS, ',');
@@ -1351,7 +1357,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
 	if(!validateNetworkConfiguration(server)){
         std::cerr << "Error: validateNetworkConfiguration" << std::endl;
-		spdlog::info("Error: validateNetworkConfiguration");		
+		spdlog::info("Error: validateNetworkConfiguration");
 	}
 
 	if (config.DefaultLocalStoragePath == "") {
@@ -1363,7 +1369,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	} else {
 		server.ControlConfig.DefaultLocalStoragePath = config.DefaultLocalStoragePath;
 	}
-    
+
 	server.ControlConfig.Skips = std::map<std::string, bool>();
     server.ControlConfig.Disables = std::map<std::string, bool>();
 
@@ -1375,7 +1381,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     if (vm.count("disable")) {
         disable_str = vm["disable"].as<std::vector<std::string>>();
     }
-    
+
     // 处理每个 disable 值
     for (auto& disable : disable_str) {
         TrimString(disable);  // 去掉前后空白字符
@@ -1397,7 +1403,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 	 // 获取 tls-min-version 参数值
     std::string tlsMinVersionArg = getArgValueFromList("tls-min-version", server.ControlConfig.ExtraAPIArgs);
     server.ControlConfig.MinTLSVersion = tlsMinVersionArg;
-	
+
 	try {
         // 转换为整数表示的 TLS 版本
         server.ControlConfig.TLSMinVersion = TLSVersion(tlsMinVersionArg);
@@ -1410,7 +1416,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
 	// 将 cfg.StartupHooks, leaderControllers 和 controllers 添加到 serverConfig 中
     server.StartupHooks.insert(server.StartupHooks.end(), config.StartupHooks.begin(), config.StartupHooks.end());
-    
+
     // 将 leaderControllers 中的所有控制器添加到 server.LeaderControllers
     for (auto& controller : leaderControllers.controllers) {
         server.LeaderControllers.addController(controller);  // 添加控制器
@@ -1420,7 +1426,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     for (auto& controller : controllers.controllers) {
         server.Controllers.addController(controller);  // 添加控制器
     }
-    
+
 	// Get the "tls-cipher-suites" value from ExtraAPIArgs
     std::string tlsCipherSuitesArg = getArgValueFromList("tls-cipher-suites", server.ControlConfig.ExtraAPIArgs);
 
@@ -1435,7 +1441,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
             tlsCipherSuites.push_back(cipher);
         }
     }
-    
+
     // 如果没有密码套件，使用默认密码套件
     if (tlsCipherSuites.empty() || tlsCipherSuites[0].empty()) {
         tlsCipherSuites = {
@@ -1456,10 +1462,10 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
             joinedCipherSuites += ",";
         }
     }
-    
+
     // 将密码套件更新回 ExtraAPIArgs
     server.ControlConfig.ExtraAPIArgs.push_back("tls-cipher-suites=" + joinedCipherSuites);
-	
+
 	server.ControlConfig.CipherSuites = tlsCipherSuites;
 
 	server.ControlConfig.TLSCipherSuites = TLSCipherSuites(tlsCipherSuites);
@@ -1494,7 +1500,7 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
 
     	std::string SupervisorServiceName = version.Program + "-agent-load-balancer";
 		std::string APIServerServiceName  = version.Program + "-api-server-agent-load-balancer";
-		
+
 		ResetLoadBalancer(dataDir + "/agent", SupervisorServiceName);
     	ResetLoadBalancer(dataDir + "/agent", APIServerServiceName);
 
@@ -1542,8 +1548,9 @@ int server_run(boost::program_options::variables_map& vm,Server_user& config, Cu
     // // 启动信号处理：ctx := signals.SetupSignalContext()用于捕获和处理系统信号，确保程序在收到信号时能安全退出。
 	// ctx = SetupSignalContext();
 
+    Context* ctx = nullptr; // 声明并初始化 ctx
     // // 启动服务器：调用server.StartServer(ctx, &serverConfig, cfg)启动控制平面各组件（如API服务器、etcd、控制器等）。
-	StartServer(ctx, &server, config);
+	StartServer(*ctx, &server, &config);
     
     // // 健康检查和系统通知：监听API服务器和etcd的状态，确保其已启动并且处于运行状态。
     // // 模拟启动服务器状态
